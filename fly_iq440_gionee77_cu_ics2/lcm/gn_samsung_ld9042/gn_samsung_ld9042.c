@@ -1,0 +1,744 @@
+/* Copyright Statement:
+ *
+ * This software/firmware and related documentation ("MediaTek Software") are
+ * protected under relevant copyright laws. The information contained herein
+ * is confidential and proprietary to MediaTek Inc. and/or its licensors.
+ * Without the prior written permission of MediaTek inc. and/or its licensors,
+ * any reproduction, modification, use or disclosure of MediaTek Software,
+ * and information contained herein, in whole or in part, shall be strictly prohibited.
+ */
+/* MediaTek Inc. (C) 2010. All rights reserved.
+ *
+ * BY OPENING THIS FILE, RECEIVER HEREBY UNEQUIVOCALLY ACKNOWLEDGES AND AGREES
+ * THAT THE SOFTWARE/FIRMWARE AND ITS DOCUMENTATIONS ("MEDIATEK SOFTWARE")
+ * RECEIVED FROM MEDIATEK AND/OR ITS REPRESENTATIVES ARE PROVIDED TO RECEIVER ON
+ * AN "AS-IS" BASIS ONLY. MEDIATEK EXPRESSLY DISCLAIMS ANY AND ALL WARRANTIES,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE IMPLIED WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE OR NONINFRINGEMENT.
+ * NEITHER DOES MEDIATEK PROVIDE ANY WARRANTY WHATSOEVER WITH RESPECT TO THE
+ * SOFTWARE OF ANY THIRD PARTY WHICH MAY BE USED BY, INCORPORATED IN, OR
+ * SUPPLIED WITH THE MEDIATEK SOFTWARE, AND RECEIVER AGREES TO LOOK ONLY TO SUCH
+ * THIRD PARTY FOR ANY WARRANTY CLAIM RELATING THERETO. RECEIVER EXPRESSLY ACKNOWLEDGES
+ * THAT IT IS RECEIVER'S SOLE RESPONSIBILITY TO OBTAIN FROM ANY THIRD PARTY ALL PROPER LICENSES
+ * CONTAINED IN MEDIATEK SOFTWARE. MEDIATEK SHALL ALSO NOT BE RESPONSIBLE FOR ANY MEDIATEK
+ * SOFTWARE RELEASES MADE TO RECEIVER'S SPECIFICATION OR TO CONFORM TO A PARTICULAR
+ * STANDARD OR OPEN FORUM. RECEIVER'S SOLE AND EXCLUSIVE REMEDY AND MEDIATEK'S ENTIRE AND
+ * CUMULATIVE LIABILITY WITH RESPECT TO THE MEDIATEK SOFTWARE RELEASED HEREUNDER WILL BE,
+ * AT MEDIATEK'S OPTION, TO REVISE OR REPLACE THE MEDIATEK SOFTWARE AT ISSUE,
+ * OR REFUND ANY SOFTWARE LICENSE FEES OR SERVICE CHARGE PAID BY RECEIVER TO
+ * MEDIATEK FOR SUCH MEDIATEK SOFTWARE AT ISSUE.
+ *
+ * The following software/firmware and/or related documentation ("MediaTek Software")
+ * have been modified by MediaTek Inc. All revisions are subject to any receiver's
+ * applicable license agreements with MediaTek Inc.
+ */
+
+/*****************************************************************************
+ *  Copyright Statement:
+ *  --------------------
+ *  This software is protected by Copyright and the information contained
+ *  herein is confidential. The software may not be copied and the information
+ *  contained herein may not be used or disclosed except with the written
+ *  permission of MediaTek Inc. (C) 2008
+ *
+ *  BY OPENING THIS FILE, BUYER HEREBY UNEQUIVOCALLY ACKNOWLEDGES AND AGREES
+ *  THAT THE SOFTWARE/FIRMWARE AND ITS DOCUMENTATIONS ("MEDIATEK SOFTWARE")
+ *  RECEIVED FROM MEDIATEK AND/OR ITS REPRESENTATIVES ARE PROVIDED TO BUYER ON
+ *  AN "AS-IS" BASIS ONLY. MEDIATEK EXPRESSLY DISCLAIMS ANY AND ALL WARRANTIES,
+ *  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE IMPLIED WARRANTIES OF
+ *  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE OR NONINFRINGEMENT.
+ *  NEITHER DOES MEDIATEK PROVIDE ANY WARRANTY WHATSOEVER WITH RESPECT TO THE
+ *  SOFTWARE OF ANY THIRD PARTY WHICH MAY BE USED BY, INCORPORATED IN, OR
+ *  SUPPLIED WITH THE MEDIATEK SOFTWARE, AND BUYER AGREES TO LOOK ONLY TO SUCH
+ *  THIRD PARTY FOR ANY WARRANTY CLAIM RELATING THERETO. MEDIATEK SHALL ALSO
+ *  NOT BE RESPONSIBLE FOR ANY MEDIATEK SOFTWARE RELEASES MADE TO BUYER'S
+ *  SPECIFICATION OR TO CONFORM TO A PARTICULAR STANDARD OR OPEN FORUM.
+ *
+ *  BUYER'S SOLE AND EXCLUSIVE REMEDY AND MEDIATEK'S ENTIRE AND CUMULATIVE
+ *  LIABILITY WITH RESPECT TO THE MEDIATEK SOFTWARE RELEASED HEREUNDER WILL BE,
+ *  AT MEDIATEK'S OPTION, TO REVISE OR REPLACE THE MEDIATEK SOFTWARE AT ISSUE,
+ *  OR REFUND ANY SOFTWARE LICENSE FEES OR SERVICE CHARGE PAID BY BUYER TO
+ *  MEDIATEK FOR SUCH MEDIATEK SOFTWARE AT ISSUE.
+ *
+ *  THE TRANSACTION CONTEMPLATED HEREUNDER SHALL BE CONSTRUED IN ACCORDANCE
+ *  WITH THE LAWS OF THE STATE OF CALIFORNIA, USA, EXCLUDING ITS CONFLICT OF
+ *  LAWS PRINCIPLES.  ANY DISPUTES, CONTROVERSIES OR CLAIMS ARISING THEREOF AND
+ *  RELATED THERETO SHALL BE SETTLED BY ARBITRATION IN SAN FRANCISCO, CA, UNDER
+ *  THE RULES OF THE INTERNATIONAL CHAMBER OF COMMERCE (ICC).
+ *
+ *****************************************************************************/
+
+#include <linux/string.h>
+#ifdef BUILD_UBOOT
+#include <asm/arch/mt6577_gpio.h>
+#define LCM_DEBUG printf
+#else
+#include <mach/mt6577_gpio.h>
+#define LCM_DEBUG printk
+#endif
+
+#include "lcm_drv.h"
+
+// ---------------------------------------------------------------------------
+//  Local Constants
+// ---------------------------------------------------------------------------
+
+#define FRAME_WIDTH  (480)
+#define FRAME_HEIGHT (800)
+
+// ---------------------------------------------------------------------------
+//  Local Variables
+// ---------------------------------------------------------------------------
+
+static LCM_UTIL_FUNCS lcm_util = {0};
+
+#define SET_RESET_PIN(v)    (lcm_util.set_reset_pin((v)))
+
+#define UDELAY(n) (lcm_util.udelay(n))
+#define MDELAY(n) (lcm_util.mdelay(n))
+
+// ---------------------------------------------------------------------------
+//  Local Functions
+// ---------------------------------------------------------------------------
+
+
+//for samsung start
+#define BL_MAX		      (15)    //range by application
+#define TOTAL_BL          (300)   //GAMAA range 
+#define ARRAY_OF(x)       (sizeof(x)/sizeof(x[0]))
+#define DUTY_LEVEL        (TOTAL_BL/BL_MAX)
+//#define GAMMA_DEGREE      (8)   //modified bu chenqiang
+
+static struct msm_panel_common_pdata *lcdc_samung_pdata;
+/*-----------------------------------------------gamma for backlight-----------------------------------------------------------*/
+#define GAMMABACKLIGHT_NUM  21 
+#define ELVSS_NUM           4
+struct __gamma_backlight {
+    unsigned int backlight_level;                       //backlight level
+    unsigned char gammaValue[GAMMABACKLIGHT_NUM]; //gamma value for backlight
+};
+
+struct __dynamic_elvss {  //for dynamic set voltage according backlight, it could save power
+    unsigned int max_backlight;
+    unsigned int min_backlight;
+    unsigned char regValue[ELVSS_NUM];
+};
+
+static struct __gamma_backlight gamma_backlight[] = {
+   /* {  0, {0x0C, 0x81, 0xB7, 0xBA, 0xCD, 0x00, 0x41, 0x0C, 0x80, 0xA7, 0xB1, 0xCB, 0x00, 0x4C, 0x0C, 0xAB, 0xB1, 0xB2, 0xCC, 0x00, 0x56}},	
+    { 10, {0x0C, 0x81, 0xB7, 0xBA, 0xCD, 0x00, 0x41, 0x0C, 0x80, 0xA7, 0xB1, 0xCB, 0x00, 0x4C, 0x0C, 0xAB, 0xB1, 0xB2, 0xCC, 0x00, 0x56}},	
+    { 20, {0x0C, 0x81, 0xB7, 0xBA, 0xCD, 0x00, 0x41, 0x0C, 0x80, 0xA7, 0xB1, 0xCB, 0x00, 0x4C, 0x0C, 0xAB, 0xB1, 0xB2, 0xCC, 0x00, 0x56}},	
+    { 30, {0x0C, 0x81, 0xB7, 0xBA, 0xCD, 0x00, 0x41, 0x0C, 0x80, 0xA7, 0xB1, 0xCB, 0x00, 0x4C, 0x0C, 0xAB, 0xB1, 0xB2, 0xCC, 0x00, 0x56}},	
+    { 40, {0x0C, 0x96, 0xB9, 0xB8, 0xCB, 0x00, 0x49, 0x0C, 0x85, 0xAD, 0xAF, 0xC9, 0x00, 0x55, 0x0C, 0xAC, 0xB1, 0xB3, 0xCA, 0x00, 0x60}},
+    { 50, {0x0C, 0x9E, 0xBA, 0xB6, 0xC9, 0x00, 0x50, 0x0C, 0x88, 0xAF, 0xAE, 0xC8, 0x00, 0x5D, 0x0C, 0xAC, 0xB2, 0xB2, 0xC8, 0x00, 0x68}},
+    { 60, {0x0C, 0x9F, 0xBA, 0xB4, 0xC9, 0x00, 0x56, 0x0C, 0x89, 0xB1, 0xAD, 0xC8, 0x00, 0x63, 0x0C, 0xAC, 0xB2, 0xB0, 0xC7, 0x00, 0x6F}},
+    { 70, {0x0C, 0xA4, 0xB8, 0xB4, 0xC9, 0x00, 0x5B, 0x0C, 0x8C, 0xB2, 0xAC, 0xC7, 0x00, 0x69, 0x0C, 0xAD, 0xB1, 0xAF, 0xC6, 0x00, 0x76}},
+    { 80, {0x0C, 0xA6, 0xB9, 0xB2, 0xC9, 0x00, 0x60, 0x0C, 0x8E, 0xB2, 0xAA, 0xC6, 0x00, 0x6F, 0x0C, 0xAE, 0xB0, 0xAE, 0xC6, 0x00, 0x7C}},
+    { 90, {0x0C, 0xA7, 0xB8, 0xB2, 0xC8, 0x00, 0x65, 0x0C, 0x92, 0xB1, 0xAA, 0xC4, 0x00, 0x74, 0x0C, 0xAC, 0xB1, 0xAD, 0xC5, 0x00, 0x82}},
+    {100, {0x0C, 0xA8, 0xB8, 0xB2, 0xC6, 0x00, 0x69, 0x0C, 0x93, 0xB0, 0xAA, 0xC3, 0x00, 0x79, 0x0C, 0xAC, 0xB1, 0xAC, 0xC4, 0x00, 0x82}},
+    {110, {0x0C, 0xAB, 0xB7, 0xB1, 0xC6, 0x00, 0x6D, 0x0C, 0x96, 0xB0, 0xA9, 0xC3, 0x00, 0x7D, 0x0C, 0xAC, 0xB0, 0xAC, 0xC3, 0x00, 0x8C}},
+    {120, {0x0C, 0xAC, 0xB7, 0xB0, 0xC4, 0x00, 0x71, 0x0C, 0x97, 0xAF, 0xA9, 0xC2, 0x00, 0x82, 0x0C, 0xAC, 0xB0, 0xAC, 0xC2, 0x00, 0x90}},
+    {130, {0x0C, 0xAE, 0xB5, 0xAF, 0xC4, 0x00, 0x75, 0x0C, 0x9A, 0xAE, 0xA9, 0xC1, 0x00, 0x86, 0x0C, 0xAD, 0xAF, 0xAB, 0xC1, 0x00, 0x95}},
+    {140, {0x0C, 0xAE, 0xB4, 0xAF, 0xC5, 0x00, 0x78, 0x0C, 0x9B, 0xAE, 0xA9, 0xC1, 0x00, 0x89, 0x0C, 0xAD, 0xAE, 0xAA, 0xC2, 0x00, 0x99}},
+    {150, {0x0C, 0xAD, 0xB5, 0xAF, 0xC3, 0x00, 0x7C, 0x0C, 0x9B, 0xAE, 0xA8, 0xBF, 0x00, 0x8E, 0x0C, 0xAC, 0xAE, 0xAA, 0xC1, 0x00, 0x9D}},
+    {160, {0x0C, 0xAD, 0xB5, 0xAD, 0xC3, 0x00, 0x7F, 0x0C, 0x9D, 0xAD, 0xA7, 0xBF, 0x00, 0x91, 0x0C, 0xAC, 0xAE, 0xA9, 0xC0, 0x00, 0xA1}},
+    {170, {0x0C, 0xAE, 0xB6, 0xAD, 0xC1, 0x00, 0x82, 0x0C, 0x9F, 0xAC, 0xA6, 0xBE, 0x00, 0x95, 0x0C, 0xAB, 0xAE, 0xA9, 0xBF, 0x00, 0xA5}},
+    {180, {0x0C, 0xAF, 0xB5, 0xAD, 0xC1, 0x00, 0x85, 0x0C, 0xA0, 0xAC, 0xA6, 0xBD, 0x00, 0x99, 0x0C, 0xAB, 0xAE, 0xA9, 0xBE, 0x00, 0xA9}},
+    {190, {0x0C, 0xB0, 0xB5, 0xAC, 0xC1, 0x00, 0x88, 0x0C, 0xA1, 0xAB, 0xA6, 0xBD, 0x00, 0x9C, 0x0C, 0xAB, 0xAE, 0xA8, 0xBD, 0x00, 0xAD}},
+    {200, {0x0C, 0xB1, 0xB5, 0xAB, 0xC0, 0x00, 0x8B, 0x0C, 0xA2, 0xAB, 0xA5, 0xBC, 0x00, 0xA0, 0x0C, 0xAC, 0xAE, 0xA7, 0xBC, 0x00, 0xB1}},
+    {210, {0x0C, 0xB1, 0xB3, 0xAD, 0xBF, 0x00, 0x8E, 0x0C, 0xA3, 0xA9, 0xA6, 0xBB, 0x00, 0xA3, 0x0C, 0xAC, 0xAD, 0xA8, 0xBC, 0x00, 0xB4}},
+    {220, {0x0C, 0xB0, 0xB4, 0xAC, 0xBE, 0x00, 0x91, 0x0C, 0xA3, 0xAA, 0xAA, 0xBB, 0x00, 0xA6, 0x0C, 0xAB, 0xAD, 0xA7, 0xBC, 0x00, 0xB7}},
+    {230, {0x0C, 0xB0, 0xB4, 0xAA, 0xBE, 0x00, 0x94, 0x0C, 0xA4, 0xAA, 0xA3, 0xBB, 0x00, 0xA9, 0x0C, 0xAB, 0xAC, 0xA6, 0xBB, 0x00, 0xBB}},
+    {240, {0x0C, 0xB1, 0xB4, 0xAA, 0xBE, 0x00, 0x96, 0x0C, 0xA4, 0xA9, 0xA4, 0xBA, 0x00, 0xAC, 0x0C, 0xAB, 0xAC, 0xA6, 0xBB, 0x00, 0xBE}},
+    {250, {0x0C, 0xB2, 0xB3, 0xA9, 0xBC, 0x00, 0x9A, 0x0C, 0xA5, 0xA9, 0xA4, 0xB9, 0x00, 0xAF, 0x0C, 0xAB, 0xAC, 0xA6, 0xB9, 0x00, 0xC2}},
+    {260, {0x0C, 0xB1, 0xB3, 0xA8, 0xBD, 0x00, 0x9C, 0x0C, 0xA5, 0xA9, 0xA2, 0xB9, 0x00, 0xB2, 0x0C, 0xAA, 0xAD, 0xA4, 0xBA, 0x00, 0xC5}},
+    {270, {0x0C, 0xB1, 0xB1, 0xA9, 0xBD, 0x00, 0x9E, 0x0C, 0xA6, 0xA8, 0xA3, 0xB8, 0x00, 0xB5, 0x0C, 0xAA, 0xAC, 0xA4, 0xBA, 0x00, 0xC8}},
+    {280, {0x0C, 0xB2, 0xB2, 0xA9, 0xBB, 0x00, 0xA0, 0x0C, 0xA6, 0xA8, 0xA2, 0xB7, 0x00, 0xB8, 0x0C, 0xAA, 0xAD, 0xA4, 0xB9, 0x00, 0xCA}},
+    {290, {0x0C, 0xB1, 0xB0, 0xA8, 0xBA, 0x00, 0xA1, 0x0C, 0xA6, 0xA7, 0xA0, 0xB7, 0x00, 0xB9, 0x0C, 0xA9, 0xAC, 0xA2, 0xB8, 0x00, 0xCC}},
+    {300, {0x0C, 0xB0, 0xAE, 0xA9, 0xB9, 0x00, 0xA3, 0x0C, 0xA6, 0xA6, 0x9F, 0xB8, 0x00, 0xBB, 0x0C, 0xA8, 0xA9, 0xA3, 0xB9, 0x00, 0xCE}},
+    */
+    /********************************SMD add new gamma 2.2 120320************************************************************************/
+    //{  0, {0x0C, 0x91, 0xB4, 0xB8, 0xD1, 0x00, 0x48, 0x0C, 0x7A, 0xAD, 0xBD, 0xD4, 0x00, 0x57, 0x0C, 0xBB, 0xAE, 0xC3, 0xD5, 0x00, 0x56}},	
+    //{ 10, {0x0C, 0x91, 0xB4, 0xB8, 0xD1, 0x00, 0x48, 0x0C, 0x7A, 0xAD, 0xBD, 0xD4, 0x00, 0x57, 0x0C, 0xBB, 0xAE, 0xC3, 0xD5, 0x00, 0x56}},	
+    //{ 20, {0x0C, 0x91, 0xB4, 0xB8, 0xD1, 0x00, 0x48, 0x0C, 0x7A, 0xAD, 0xBD, 0xD4, 0x00, 0x57, 0x0C, 0xBB, 0xAE, 0xC3, 0xD5, 0x00, 0x56}},	
+    { 0,  {0x0C, 0x85, 0xB4, 0xB8, 0xD1, 0x00, 0x3B, 0x0C, 0x7A, 0xAD, 0xBD, 0xD4, 0x00, 0x51, 0x0C, 0xBB, 0xAE, 0xC3, 0xD5, 0x00, 0x53}},
+    { 10, {0x0C, 0x85, 0xB4, 0xB8, 0xD1, 0x00, 0x3B, 0x0C, 0x7A, 0xAD, 0xBD, 0xD4, 0x00, 0x51, 0x0C, 0xBB, 0xAE, 0xC3, 0xD5, 0x00, 0x53}},
+    { 20, {0x0C, 0x85, 0xB4, 0xB8, 0xD1, 0x00, 0x3B, 0x0C, 0x7A, 0xAD, 0xBD, 0xD4, 0x00, 0x51, 0x0C, 0xBB, 0xAE, 0xC3, 0xD5, 0x00, 0x53}}, //Gionee:wangc modified at 2012-07-30 for reducing lowest brightness//SMD have not gave 0~20 value  
+    { 30, {0x0C, 0x91, 0xB4, 0xB8, 0xD1, 0x00, 0x48, 0x0C, 0x7A, 0xAD, 0xBD, 0xD4, 0x00, 0x57, 0x0C, 0xBB, 0xAE, 0xC3, 0xD5, 0x00, 0x56}}, 
+    { 30, {0x0C, 0x91, 0xB4, 0xB8, 0xD1, 0x00, 0x48, 0x0C, 0x7A, 0xAD, 0xBD, 0xD4, 0x00, 0x57, 0x0C, 0xBB, 0xAE, 0xC3, 0xD5, 0x00, 0x56}}, 
+    { 40, {0x0C, 0x9D, 0xB4, 0xB9, 0xCF, 0x00, 0x50, 0x0C, 0x88, 0xB1, 0xBA, 0xD1, 0x00, 0x60, 0x0C, 0xB9, 0xAE, 0xC1, 0xD3, 0x00, 0x60}},    
+    { 50, {0x0C, 0xA0, 0xB4, 0xB8, 0xCE, 0x00, 0x57, 0x0C, 0x8C, 0xB5, 0xB8, 0xD0, 0x00, 0x68, 0x0C, 0xB6, 0xB0, 0xBF, 0xD1, 0x00, 0x68}},    
+    { 60, {0x0C, 0xA0, 0xB5, 0xB7, 0xCE, 0x00, 0x5C, 0x0C, 0x8E, 0xB6, 0xB6, 0xCF, 0x00, 0x6E, 0x0C, 0xB4, 0xB4, 0xBC, 0xD1, 0x00, 0x6E}},
+    { 70, {0x0C, 0xA2, 0xB6, 0xB6, 0xCC, 0x00, 0x62, 0x0C, 0x94, 0xB7, 0xB5, 0xCE, 0x00, 0x74, 0x0C, 0xB3, 0xB6, 0xBA, 0xCF, 0x00, 0x75}},
+    { 80, {0x0C, 0xA2, 0xB7, 0xB3, 0xCC, 0x00, 0x67, 0x0C, 0x95, 0xB8, 0xB3, 0xCE, 0x00, 0x7A, 0x0C, 0xB1, 0xB8, 0xB7, 0xCE, 0x00, 0x7B}},
+    { 90, {0x0C, 0xA3, 0xB7, 0xB2, 0xCC, 0x00, 0x6B, 0x0C, 0x97, 0xB8, 0xB2, 0xCD, 0x00, 0x7F, 0x0C, 0xAF, 0xBA, 0xB5, 0xCE, 0x00, 0x80}},
+    {100, {0x0C, 0xA4, 0xB6, 0xB3, 0xC9, 0x00, 0x70, 0x0C, 0x9B, 0xB7, 0xB2, 0xCA, 0x00, 0x85, 0x0C, 0xB0, 0xBA, 0xB4, 0xCB, 0x00, 0x86}},
+    {110, {0x0C, 0xA4, 0xB5, 0xB2, 0xC8, 0x00, 0x73, 0x0C, 0x9C, 0xB7, 0xB1, 0xCA, 0x00, 0x88, 0x0C, 0xB0, 0xBA, 0xB4, 0xCB, 0x00, 0x89}},
+    {120, {0x0C, 0xA4, 0xB6, 0xB3, 0xC7, 0x00, 0x77, 0x0C, 0x9D, 0xB8, 0xAF, 0xCA, 0x00, 0x8C, 0x0C, 0xAF, 0xBA, 0xB3, 0xCA, 0x00, 0x8E}},
+    {130, {0x0C, 0xA5, 0xB5, 0xB3, 0xC5, 0x00, 0x7C, 0x0C, 0x9F, 0xB7, 0xAF, 0xC9, 0x00, 0x91, 0x0C, 0xB0, 0xBA, 0xB2, 0xC8, 0x00, 0x93}},
+    {140, {0x0C, 0xA5, 0xB5, 0xB2, 0xC5, 0x00, 0x7F, 0x0C, 0xA0, 0xB7, 0xAE, 0xC8, 0x00, 0x95, 0x0C, 0xB0, 0xBB, 0xB1, 0xC8, 0x00, 0x97}},
+    {150, {0x0C, 0xA6, 0xB3, 0xB1, 0xC5, 0x00, 0x82, 0x0C, 0xA1, 0xB6, 0xAD, 0xC8, 0x00, 0x99, 0x0C, 0xB2, 0xBA, 0xAF, 0xC7, 0x00, 0x9B}},
+    {160, {0x0C, 0xA5, 0xB3, 0xB1, 0xC4, 0x00, 0x85, 0x0C, 0xA2, 0xB5, 0xAD, 0xC6, 0x00, 0x9D, 0x0C, 0xB1, 0xB9, 0xB0, 0xC6, 0x00, 0x9F}},
+    {170, {0x0C, 0xA5, 0xB4, 0xB0, 0xC4, 0x00, 0x89, 0x0C, 0xA3, 0xB6, 0xAC, 0xC6, 0x00, 0xA1, 0x0C, 0xB1, 0xB9, 0xAF, 0xC5, 0x00, 0xA4}},
+    {180, {0x0C, 0xA6, 0xB4, 0xB1, 0xC4, 0x00, 0x8B, 0x0C, 0xA5, 0xB5, 0xAB, 0xC5, 0x00, 0xA4, 0x0C, 0xB2, 0xB9, 0xAD, 0xC5, 0x00, 0xA7}},
+    {190, {0x0C, 0xA6, 0xB4, 0xAF, 0xC3, 0x00, 0x8E, 0x0C, 0xA6, 0xB3, 0xAB, 0xC4, 0x00, 0xA8, 0x0C, 0xB2, 0xB9, 0xAD, 0xC3, 0x00, 0xAB}},
+    {200, {0x0C, 0xA7, 0xB3, 0xAE, 0xC2, 0x00, 0x91, 0x0C, 0xA7, 0xB3, 0xAA, 0xC3, 0x00, 0xAB, 0x0C, 0xB4, 0xB9, 0xAB, 0xC3, 0x00, 0xAE}},
+    {210, {0x0C, 0xA6, 0xB3, 0xAD, 0xC2, 0x00, 0x94, 0x0C, 0xA7, 0xB2, 0xAB, 0xC2, 0x00, 0xAD, 0x0C, 0xB3, 0xB8, 0xAB, 0xC3, 0x00, 0xB1}},
+    {220, {0x0C, 0xA7, 0xB3, 0xAD, 0xC1, 0x00, 0x96, 0x0C, 0xA7, 0xB2, 0xAA, 0xC2, 0x00, 0xB0, 0x0C, 0xB4, 0xB6, 0xAB, 0xC3, 0x00, 0xB4}}, 
+    {230, {0x0C, 0xA7, 0xB3, 0xAD, 0xC0, 0x00, 0x99, 0x0C, 0xA8, 0xB2, 0xA9, 0xC1, 0x00, 0xB4, 0x0C, 0xB5, 0xB7, 0xAA, 0xC1, 0x00, 0xB7}},
+    {240, {0x0C, 0xA7, 0xB3, 0xAD, 0xC0, 0x00, 0x9C, 0x0C, 0xA9, 0xB1, 0xA9, 0xC0, 0x00, 0xB7, 0x0C, 0xB5, 0xB6, 0xA9, 0xC0, 0x00, 0xBB}},
+    {250, {0x0C, 0xA6, 0xB2, 0xAB, 0xC0, 0x00, 0x9E, 0x0C, 0xA9, 0xB0, 0xA9, 0xC0, 0x00, 0xBA, 0x0C, 0xB4, 0xB6, 0xA9, 0xC0, 0x00, 0xBE}},
+    {260, {0x0C, 0xA7, 0xB2, 0xAA, 0xBE, 0x00, 0xA1, 0x0C, 0xA9, 0xB1, 0xA7, 0xBF, 0x00, 0xBD, 0x0C, 0xB5, 0xB6, 0xA8, 0xBF, 0x00, 0xC1}}, 
+    {270, {0x0C, 0xA8, 0xB0, 0xAA, 0xBF, 0x00, 0xA3, 0x0C, 0xAB, 0xAF, 0xA8, 0xBF, 0x00, 0xC0, 0x0C, 0xB6, 0xB4, 0xA8, 0xBF, 0x00, 0xC4}},
+#if 0 //Gionee:wangc modified at 2012-07-30 for add highest brightness
+    {280, {0x0C, 0xA7, 0xB1, 0xAA, 0xBD, 0x00, 0xA6, 0x0C, 0xAB, 0xAF, 0xA7, 0xBE, 0x00, 0xC3, 0x0C, 0xB6, 0xB4, 0xA8, 0xBE, 0x00, 0xC7}},
+    {290, {0x0C, 0xA6, 0xB0, 0xAA, 0xBD, 0x00, 0xA9, 0x0C, 0xAA, 0xAF, 0xA7, 0xBD, 0x00, 0xC6, 0x0C, 0xB5, 0xB4, 0xA8, 0xBE, 0x00, 0xCA}},
+    {300, {0x0C, 0xA9, 0xAF, 0xA9, 0xBC, 0x00, 0xAA, 0x0C, 0xAB, 0xAE, 0xA6, 0xBB, 0x00, 0xC8, 0x0C, 0xB5, 0xB1, 0xA7, 0xBC, 0x00, 0xCC}},
+    {310, {0x0C, 0xAA, 0xAE, 0xA9, 0xBB, 0x00, 0xAD, 0x0C, 0xAB, 0xAE, 0xA6, 0xBB, 0x00, 0xC8, 0x0C, 0xB5, 0xB1, 0xA7, 0xBC, 0x00, 0xCC}},
+    //{290, {0x0C, 0xAA, 0xAE, 0xA9, 0xBB, 0x00, 0xAD, 0x0C, 0xAB, 0xAE, 0xA6, 0xBB, 0x00, 0xC8, 0x0C, 0xB5, 0xB1, 0xA7, 0xBC, 0x00, 0xCC}},
+    //{300, {0x0C, 0xA9, 0xAF, 0xA9, 0xBC, 0x00, 0xAA, 0x0C, 0xAB, 0xAE, 0xA6, 0xBB, 0x00, 0xC8, 0x0C, 0xB5, 0xB1, 0xA7, 0xBC, 0x00, 0xCC}},
+#endif
+};
+
+static struct __dynamic_elvss dynamic_elvss[] = {
+    { 29,   0, {0x23, 0x23, 0x23, 0x23}},
+    {100,  30, {0x23, 0x23, 0x23, 0x23}},
+    {160, 110, {0x1F, 0x1F, 0x1F, 0x1F}},
+    {200, 170, {0x1C, 0x1C, 0x1C, 0x1C}},
+    {300, 210, {0x15, 0x15, 0x15, 0x15}},
+};
+
+#define  INIT_BACKLIGHT          (-1)           //-1:indicate first initialize
+#define  DEFAULT_BACKLIGHT_LEVEL (15)           //15:indicate the index of 'gamma_backlight'
+static int   gPrevBacklight = INIT_BACKLIGHT;   //to store previous bakcklight value
+static void  setGammaBacklight(unsigned int indexOfArray);
+static void  setDynamicElvss(unsigned int indexOfArray);
+
+//gionee suxt add for gpio SPI 20120131 begain
+#if defined(GN_MTK_BSP_LCD_SW_SPI)  
+
+#define LSA0_GPIO_PIN           (GPIO_DISP_LSA0_PIN)
+#define LSCE_GPIO_PIN           (GPIO_DISP_LSCE_PIN)
+#define LSCK_GPIO_PIN           (GPIO_DISP_LSCK_PIN)
+#define LSDA_GPIO_PIN           (GPIO_DISP_LSDA_PIN)
+
+#define SET_LSCE_LOW             SET_GPIO_OUT(LSCE_GPIO_PIN, 0)
+#define SET_LSCE_HIGH            SET_GPIO_OUT(LSCE_GPIO_PIN, 1)
+#define SET_LSCK_LOW             SET_GPIO_OUT(LSCK_GPIO_PIN, 0)
+#define SET_LSCK_HIGH            SET_GPIO_OUT(LSCK_GPIO_PIN, 1)
+#define SET_LSDA_LOW             SET_GPIO_OUT(LSDA_GPIO_PIN, 0)
+#define SET_LSDA_HIGH            SET_GPIO_OUT(LSDA_GPIO_PIN, 1)
+static __inline void SPI_3W_SET_CMD(unsigned char data)
+{
+    unsigned int i;
+
+    SET_LSCK_HIGH;
+    UDELAY(10);
+    SET_LSCE_LOW;
+    UDELAY(1);
+    SET_LSCK_LOW;
+    SET_LSCK_LOW;
+    SET_LSDA_LOW;
+    SET_LSCK_LOW;
+    SET_LSCK_LOW;
+    SET_LSCK_HIGH;
+    UDELAY(1);
+
+    for (i = 0; i < 8; i++ )
+    {
+        SET_LSCK_LOW;
+        if (data & 0x80) {
+            SET_LSDA_HIGH;
+        } else {
+            SET_LSDA_LOW;
+        }
+        UDELAY(1);
+        SET_LSCK_HIGH;
+        UDELAY(1);
+        data <<= 1;
+    }
+    SET_LSCE_HIGH;
+}
+
+static __inline void SPI_3W_SET_PAs(unsigned char data)
+{
+    unsigned int i;
+
+    SET_LSCK_HIGH;
+    UDELAY(1);
+    SET_LSCE_LOW;
+    UDELAY(1);
+    SET_LSCK_LOW;
+    SET_LSCK_LOW;
+    SET_LSDA_HIGH;
+    SET_LSCK_LOW;
+    SET_LSCK_LOW;
+    SET_LSCK_HIGH;
+    UDELAY(1);
+
+    for (i = 0; i < 8; i++ )
+    {
+        SET_LSCK_LOW;
+        if (data & 0x80) {
+            SET_LSDA_HIGH;
+        } else {
+            SET_LSDA_LOW;
+        }
+        UDELAY(1);
+        SET_LSCK_HIGH;
+        UDELAY(1);
+        data <<= 1;
+    }
+    SET_LSCE_HIGH;
+}
+
+static __inline void samung_write_cmd(unsigned int cmd)
+{
+    SPI_3W_SET_CMD(cmd);
+}
+
+static __inline void samung_write_data(unsigned int data)
+{
+    SPI_3W_SET_PAs(data);
+}
+
+static void config_gpio(void)
+{
+    LCM_DEBUG("[LCM_gionee: config_gpio. \n");
+    const unsigned int USED_GPIOS[] = 
+    {
+        LSCE_GPIO_PIN,
+        LSCK_GPIO_PIN,
+        LSDA_GPIO_PIN,
+    };
+
+    unsigned int i;
+
+    //lcm_util.set_gpio_mode(LSA0_GPIO_PIN, GPIO_DISP_LSA0_PIN_M_GPIO);
+    lcm_util.set_gpio_mode(LSCE_GPIO_PIN, GPIO_DISP_LSCE_PIN_M_GPIO);
+    lcm_util.set_gpio_mode(LSCK_GPIO_PIN, GPIO_DISP_LSCK_PIN_M_GPIO);
+    lcm_util.set_gpio_mode(LSDA_GPIO_PIN, GPIO_DISP_LSDA_PIN_M_GPIO);
+
+    for (i = 0; i < ARY_SIZE(USED_GPIOS); ++ i)
+    {
+        lcm_util.set_gpio_dir(USED_GPIOS[i], 1);               // GPIO out
+        lcm_util.set_gpio_pull_enable(USED_GPIOS[i], 0);
+    }
+
+}
+#else 
+static __inline void samung_write_cmd(unsigned int cmd)
+{
+    unsigned char temp = (unsigned char)(cmd & 0xFF);
+    lcm_util.send_cmd(temp);
+}
+
+static __inline void samung_write_data(unsigned int data)
+{
+    unsigned char temp = (unsigned char)(data & 0xFF);
+    lcm_util.send_data(temp);
+}
+#endif
+//gionee suxt add for gpio SPI 20120131 end
+
+static void setDynamicElvss(unsigned int indexOfGammaArray)
+{
+    int i;
+    int indexOfElvss;
+
+    if(indexOfGammaArray < 0 || indexOfGammaArray >= ARRAY_OF(gamma_backlight)){
+        return;
+    }
+
+    //find me	
+    for(indexOfElvss = 0; indexOfElvss < ARRAY_OF(dynamic_elvss); indexOfElvss++)
+    {
+        if(dynamic_elvss[indexOfElvss].max_backlight >= gamma_backlight[indexOfGammaArray].backlight_level){
+            break;
+        }
+    }
+
+    samung_write_cmd(0xB1); //star Dynamic ELVSS set
+    samung_write_data(0x0E); //what fae what change for DYNAMIC ELCSS ser
+    samung_write_data(0x00);
+    samung_write_data(0x16);
+
+    samung_write_cmd(0xB2);
+    for(i = 0; i < ELVSS_NUM; i++)
+    {
+        samung_write_data(dynamic_elvss[indexOfElvss].regValue[i]);
+    }
+}
+
+static void setGammaBacklight(unsigned int indexOfArray)
+{
+    int i;
+
+    if(indexOfArray < 0 || indexOfArray >= ARRAY_OF(gamma_backlight)){
+        return;
+    }
+
+    samung_write_cmd(0xB1); //smart Dynamic ELVSS set
+    samung_write_data(0x0E);//FAE suggest close Dynamic ELVSS
+    samung_write_data(0x00);
+    samung_write_data(0x16);
+
+    samung_write_cmd(0xFB); //Gamma set update
+    samung_write_data(0x02);
+    samung_write_data(0xA5); //FAE suggest 0x5A;
+
+    //send cmd 0xF9
+    samung_write_cmd(0xF9);
+
+    for(i = 0; i < GAMMABACKLIGHT_NUM; i++)
+    {
+        samung_write_data(gamma_backlight[indexOfArray].gammaValue[i]);
+    }
+
+    samung_write_cmd(0xFB); //Gamma set update
+    samung_write_data(0x02);
+    samung_write_data(0x5A); //FAE suggest 0xA5
+}
+
+static void samung_backlight_display_on(int index)
+{
+
+    setGammaBacklight(index);
+    setDynamicElvss(index);
+
+    //this module has no effect when the module is already in display on mode
+    samung_write_cmd(0x29); //display on	
+    samung_write_cmd(0x20); //display inversion off
+
+}
+#ifndef BUILD_UBOOT
+#ifdef GN_MTK_BSP_LCM_DEBUG   //add by chenqiang for lcd_debug
+int lcd_f9_register_write(const char * buf)
+{
+    int n_idx;
+    int max_nu=0;
+    int max_np=0;
+    int max_no=0;
+    int num_n=0;
+    int num_q=0;
+    const char *p = buf ; 
+    char qq[2];
+    char num[21];
+    while( (*p++ != '{' )&&( max_nu++ <= 200));    
+    {
+        if(max_nu>200)       return -1;
+    }
+    for(num_n=0;num_n<=20;num_n++)
+     {       
+        for(num_q=0;num_q<=1;num_q++)
+        {
+         max_np=0;
+         while( (*(p) == 32)&&(max_np++ <= 20) )
+         {
+           p++;
+           if(max_np>20)       return -1;
+         }
+         if( (*p>='0') && (*p <='9'))
+           qq[num_q]=(*p++ -'0');
+         else if( (*p>='A') && (*p <='F'))
+           qq[num_q]=(*p++ -'A' + 10);
+         else if( (*p>='a') && (*p <='f'))
+           qq[num_q]=(*p++ -'a' + 10);
+         else
+             return -1;
+        }
+       num[num_n]=qq[0]*16 + qq[1];
+     }
+    while( (*p++!= '}' )&&( max_no++ <= 20));    
+    {
+        if(max_no>20)       return -1;
+    }
+
+    samung_write_cmd(0xB1); //smart Dynamic ELVSS set
+    samung_write_data(0x0E);//FAE suggest close Dynamic ELVSS
+    samung_write_data(0x00);
+    samung_write_data(0x16);
+
+    samung_write_cmd(0xFB); //Gamma set update
+    samung_write_data(0x02);
+    samung_write_data(0xA5); //FAE suggest 0x5A;
+
+    samung_write_cmd(0xF9);
+
+    for( n_idx=0; n_idx<=20; n_idx++)
+    {
+       LCM_DEBUG("lcd_f9_register idx=%d,16x=ox%x\n", n_idx,num[n_idx]);
+       samung_write_data(num[n_idx]);
+    }
+    samung_write_cmd(0xFB); //Gamma set update
+    samung_write_data(0x02);
+    samung_write_data(0x5A); //FAE suggest 0xA5
+
+    samung_write_cmd(0x29); //display on	
+    samung_write_cmd(0x20); //display inversion off
+    return 0;
+}
+#endif
+#endif
+static void init_lcm_registers(void)
+{
+    LCM_DEBUG("[LCM************]: init_lcm_registers. \n");
+    samung_write_cmd(0xF0); //level2 command set
+    samung_write_data(0x5A);
+    samung_write_data(0x5A);
+
+    samung_write_cmd(0xF2); //display control set
+    samung_write_data(0x02);
+    samung_write_data(0x03);
+    samung_write_data(0x1C);
+    samung_write_data(0x10);
+    samung_write_data(0x10);
+
+    samung_write_cmd(0xF7); //GTCON
+    samung_write_data(0x09);
+    samung_write_data(0x00);
+    samung_write_data(0x30);//polarity
+
+    samung_write_cmd(0xF8); //LTPS Timing set
+    samung_write_data(0x05);
+    samung_write_data(0x5E);
+    samung_write_data(0x96);
+    samung_write_data(0x6B);
+    samung_write_data(0x7D);
+    samung_write_data(0x0D);
+    samung_write_data(0x3F);
+    samung_write_data(0x00);
+    samung_write_data(0x00);
+    samung_write_data(0x32);
+    samung_write_data(0x00);
+    samung_write_data(0x00);
+    samung_write_data(0x00);
+    samung_write_data(0x00);
+    samung_write_data(0x00);
+    samung_write_data(0x00);
+    samung_write_data(0x07);
+    samung_write_data(0x05); //07
+    samung_write_data(0x1F); //20
+    samung_write_data(0x1F);//20
+    samung_write_data(0x1F);//20
+    samung_write_data(0x00);
+    samung_write_data(0x00);
+    
+    
+    /***********SMD add ACL setting 120320**********************/
+    samung_write_cmd(0xC1); //ACL SETTING
+    samung_write_data(0x4D);
+    samung_write_data(0x96);
+    samung_write_data(0x1D);
+    samung_write_data(0x00);
+    samung_write_data(0x00);
+    samung_write_data(0x01);
+    samung_write_data(0xDF);
+    samung_write_data(0x00);
+    samung_write_data(0x00);
+    samung_write_data(0x03);
+    samung_write_data(0x1F);
+    samung_write_data(0x00);
+    samung_write_data(0x00);
+    samung_write_data(0x00);
+    samung_write_data(0x00);
+    samung_write_data(0x00);
+    samung_write_data(0x01);
+    samung_write_data(0x08); 
+    samung_write_data(0x0F); 
+    samung_write_data(0x16);
+    samung_write_data(0x1D);
+    samung_write_data(0x24);
+    samung_write_data(0x2A);
+    samung_write_data(0x31);
+    samung_write_data(0x38);
+    samung_write_data(0x3F);
+    samung_write_data(0x46);
+    
+    samung_write_cmd(0xC0); //ACL ON/OFF CONTROL
+    samung_write_data(0x00);  //00:ACL OFF,01:ACL ON
+    
+
+    samung_write_cmd(0x11); //sleep out
+    MDELAY(120);
+
+    //TODO read ID
+
+    samung_write_cmd(0xF4); //Display Condition Set
+    samung_write_data(0x0A);
+    samung_write_data(0xA7); //87
+    samung_write_data(0x25);
+    samung_write_data(0x6A);
+    samung_write_data(0x44);
+    samung_write_data(0x02);
+/*
+    samung_write_cmd(0xF6); //source control
+    samung_write_data(0x00);
+    samung_write_data(0x1C);
+    samung_write_data(0x0F);
+    samung_write_data(0x19); //external OSC section
+    */  
+
+    samung_backlight_display_on(gPrevBacklight == INIT_BACKLIGHT ? DEFAULT_BACKLIGHT_LEVEL : gPrevBacklight);
+
+}
+
+// ---------------------------------------------------------------------------
+//  LCM Driver Implementations
+// ---------------------------------------------------------------------------
+
+static void lcm_set_util_funcs(const LCM_UTIL_FUNCS *util)
+{
+    memcpy(&lcm_util, util, sizeof(LCM_UTIL_FUNCS));
+    LCM_DEBUG("[LCM************]: lcm_set_util_funcs. \n");
+}
+
+static void lcm_get_params(LCM_PARAMS *params)
+{
+    LCM_DEBUG("[LCM************]: lcm_get_params. \n");
+
+    memset(params, 0, sizeof(LCM_PARAMS));
+    params->type   = LCM_TYPE_DPI;
+
+//gionee suxt add for gpio SPI 20120131 begain
+#if defined(GN_MTK_BSP_LCD_SW_SPI) 	
+    params->ctrl   = LCM_CTRL_GPIO;
+#else
+	params->ctrl   = LCM_CTRL_SERIAL_DBI;
+#endif
+//gionee suxt add for gpio SPI 20120131 end
+
+    params->width  = FRAME_WIDTH;
+    params->height = FRAME_HEIGHT;
+    params->io_select_mode = 0;      //LCD_IO_SEL_16CPU_24RGB;
+
+    //****---CMD DBI SETTING---************************************
+//gionee suxt add for gpio SPI 20120131 begain
+#ifndef GN_MTK_BSP_LCD_SW_SPI
+    params->dbi.port	= 0;
+    params->dbi.data_width			   = LCM_DBI_DATA_WIDTH_8BITS; 
+    params->dbi.cpu_write_bits		   = LCM_DBI_CPU_WRITE_8_BITS;
+    params->dbi.io_driving_current	   = LCM_DRIVING_CURRENT_2MA;
+
+
+    params->dbi.serial.css = 2;
+    params->dbi.serial.csh = 2;	
+    params->dbi.serial.rd_1st = 2;
+    params->dbi.serial.rd_2nd = 2;
+    params->dbi.serial.wr_1st = 2;
+    params->dbi.serial.wr_2nd = 2;
+
+
+    params->dbi.serial.sif_3wire = 1;
+    params->dbi.serial.sif_sdi = 0;
+    params->dbi.serial.sif_sck_def = 1;
+    params->dbi.serial.sif_1st_pol = 0;
+    params->dbi.serial.sif_div2 = 0;
+    params->dbi.serial.sif_hw_cs = 1;
+#endif	
+//gionee suxt add for gpio SPI 20120131 end
+    //***********************************************************
+    params->dpi.mipi_pll_clk_ref  = 0;
+    params->dpi.mipi_pll_clk_div1 = 42;
+    params->dpi.mipi_pll_clk_div2 = 10;
+    params->dpi.dpi_clk_div       = 2;
+    params->dpi.dpi_clk_duty      = 1;
+
+    params->dpi.clk_pol           = LCM_POLARITY_RISING;
+    params->dpi.de_pol            = LCM_POLARITY_RISING;
+    params->dpi.vsync_pol         = LCM_POLARITY_FALLING;
+    params->dpi.hsync_pol         = LCM_POLARITY_FALLING;
+
+    params->dpi.hsync_pulse_width = 2;
+    params->dpi.hsync_back_porch  = 14;
+    params->dpi.hsync_front_porch = 16;
+
+    params->dpi.vsync_pulse_width = 2;       
+    params->dpi.vsync_back_porch  = 1;    
+    params->dpi.vsync_front_porch = 28;    
+
+    params->dpi.format            = LCM_DPI_FORMAT_RGB888;
+    params->dpi.rgb_order         = LCM_COLOR_ORDER_RGB;
+    params->dpi.is_serial_output  = 0;
+
+    params->dpi.intermediat_buffer_num = 2;
+
+    params->dpi.io_driving_current = LCM_DRIVING_CURRENT_4MA;
+}
+
+static void lcm_init(void)
+{
+    LCM_DEBUG("[LCM ====DL9040]: lcm_init. \n");
+#if 1       //add by chenqiang 
+    SET_RESET_PIN(0);
+    MDELAY(5);
+    lcm_util.set_gpio_mode(GPIO86, GPIO_MODE_00);
+    lcm_util.set_gpio_dir(GPIO86, GPIO_DIR_OUT);               // GPIO out
+    lcm_util.set_gpio_pull_enable(GPIO86, 0);
+    lcm_util.set_gpio_out(GPIO86,GPIO_OUT_ONE);
+#endif
+//gionee suxt add for gpio SPI 20120131 
+#if defined(GN_MTK_BSP_LCD_SW_SPI) 
+    config_gpio();
+    SET_LSCK_HIGH;
+#endif	
+    //SET_RESET_PIN(1);
+    //MDELAY(1);
+    SET_RESET_PIN(0);
+    MDELAY(20);   //1  //gionee chenqiang  modified 20120426
+    SET_RESET_PIN(1);
+    MDELAY(100);
+    init_lcm_registers();
+}
+
+static void lcm_suspend(void)
+{
+
+    LCM_DEBUG("[LCM ====DL9040]: lcm_suspend. \n");
+    SET_RESET_PIN(1);
+    MDELAY(10);
+    SET_RESET_PIN(0);
+    MDELAY(10);
+    SET_RESET_PIN(1);
+    MDELAY(120);
+}
+
+static void lcm_resume(void)
+{
+    int i;
+    LCM_DEBUG("[LCM ====DL9040]: lcm_resume. \n"); 
+    init_lcm_registers();
+}
+
+static void lcm_setbacklight(unsigned int level)   //back_light setting 
+{
+
+    int index;
+
+    index = (level*10)/92;//115//90 /*Gionee wangc modified for improving highest brightness*/
+    if(gPrevBacklight == index){
+        return;
+    }
+    gPrevBacklight = index;
+    if(index == 0){
+        samung_write_cmd(0x28);//display off
+    }else{
+        samung_backlight_display_on(index);	
+    }
+    LCM_DEBUG("lcd-backlight  level=%d, index=%d\n", level,index);
+}
+
+// ---------------------------------------------------------------------------
+//  Get LCM Driver Hooks
+// ---------------------------------------------------------------------------
+LCM_DRIVER gn_samsung_ld9042_lcm_drv = 
+{ 
+        .name		= "samsung_ld9042",
+        .set_util_funcs = lcm_set_util_funcs,
+        .get_params     = lcm_get_params,
+        .init           = lcm_init,
+        .suspend        = lcm_suspend,
+        .resume         = lcm_resume,
+        .set_backlight	= lcm_setbacklight,
+
+};
